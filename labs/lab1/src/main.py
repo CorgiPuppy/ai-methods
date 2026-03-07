@@ -1,10 +1,12 @@
 import os
+import io
 import pandas as pd
 import numpy as np
 import matplotlib.pyplot as plt
 import seaborn as sns
 from sklearn.model_selection import train_test_split
 from sklearn.preprocessing import MinMaxScaler, LabelEncoder
+from sklearn.metrics import mean_absolute_error, r2_score
 from keras.models import Sequential
 from keras.layers import Dense
 
@@ -17,6 +19,17 @@ os.makedirs(ASSETS_DIR, exist_ok=True)
 df = pd.read_csv(DATA_PATH)
 if 'Unnamed: 0' in df.columns:
     df = df.drop(['Unnamed: 0'], axis=1)
+
+with open(os.path.join(ASSETS_DIR, 'data_head.txt'), 'w') as f:
+    f.write(df.head().to_string())
+
+with open(os.path.join(ASSETS_DIR, 'data_describe.txt'), 'w') as f:
+    f.write(df.describe().to_string())
+
+buffer = io.StringIO()
+df.info(buf=buffer)
+with open(os.path.join(ASSETS_DIR, 'data_info.txt'), 'w') as f:
+    f.write(buffer.getvalue())
 
 plt.figure(figsize=(10, 6))
 sns.histplot(df['price'], bins=50, kde=True)
@@ -54,8 +67,7 @@ X_test = scaler.transform(X_test)
 
 model_single = Sequential([Dense(1, input_dim=X_train.shape[1])])
 model_single.compile(optimizer='adam', loss='mean_squared_error')
-model_single.fit(X_train, y_train, epochs=20, validation_split=0.2, verbose=0)
-mse_s = model_single.evaluate(X_test, y_test, verbose=0)
+history_single = model_single.fit(X_train, y_train, epochs=20, validation_split=0.2, verbose=0)
 
 model_multi = Sequential([
     Dense(64, activation='relu', input_dim=X_train.shape[1]),
@@ -63,15 +75,37 @@ model_multi = Sequential([
     Dense(1)
 ])
 model_multi.compile(optimizer='adam', loss='mean_squared_error')
-history = model_multi.fit(X_train, y_train, epochs=20, validation_split=0.2, verbose=0)
-mse_m = model_multi.evaluate(X_test, y_test, verbose=0)
+history_multi = model_multi.fit(X_train, y_train, epochs=20, validation_split=0.2, verbose=0)
 
 plt.figure(figsize=(10, 5))
-plt.plot(history.history['loss'], label='Train')
-plt.plot(history.history['val_loss'], label='Val')
+plt.plot(history_multi.history['loss'], label='Train')
+plt.plot(history_multi.history['val_loss'], label='Val')
 plt.title('MLP Training Process')
 plt.xlabel('Epochs')
 plt.ylabel('MSE')
 plt.legend()
 plt.savefig(os.path.join(ASSETS_DIR, 'training_plot.png'))
 plt.close()
+
+plt.figure(figsize=(12, 5))
+plt.subplot(1, 2, 1)
+plt.plot(history_single.history['loss'], label='Train')
+plt.plot(history_single.history['val_loss'], label='Val')
+plt.title('Single-layer Loss')
+plt.legend()
+
+plt.subplot(1, 2, 2)
+plt.plot(history_multi.history['loss'], label='Train')
+plt.plot(history_multi.history['val_loss'], label='Val')
+plt.title('Multi-layer Loss')
+plt.legend()
+
+plt.savefig(os.path.join(ASSETS_DIR, 'training_comparison.png'))
+plt.close()
+
+y_p_s = model_single.predict(X_test)
+y_p_m = model_multi.predict(X_test)
+
+print("\n--- TEST RESULTS ---")
+print(f"SINGLE: MSE={model_single.evaluate(X_test, y_test, verbose=0):.2f}, MAE={mean_absolute_error(y_test, y_p_s):.2f}, R2={r2_score(y_test, y_p_s):.4f}")
+print(f"MULTI:  MSE={model_multi.evaluate(X_test, y_test, verbose=0):.2f}, MAE={mean_absolute_error(y_test, y_p_m):.2f}, R2={r2_score(y_test, y_p_m):.4f}")
