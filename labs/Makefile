@@ -3,30 +3,26 @@ LAB1_DIR := lab1
 
 RPRT := $(REPORT_DIR)/report.pdf
 
-TPST := typst compile --root .
+TPST := typst compile --font-path ~/../../mnt/c/Windows/Fonts --root .
 PY3 := python3
 ZTHR := zathura
 
-.PHONY: all lab1 report clean
+.PHONY: all
 
-all: lab1 report run-report
+all: clean-report run-src run-report
 
-lab1:
+run-src:
 	@echo "--- Running Lab 1 Source ---"
 	@$(PY3) $(LAB1_DIR)/src/main.py
 
-report: $(RPRT)
+run-report: $(RPRT)
+	@echo "Running a report.."
+	@$(ZTHR) $<	
 
-$(RPRT): $(REPORT_DIR)/report.typ
-	@echo "--- Building PDF Report ---"
+$(RPRT): $(REPORT_DIR)/*.typ
+	@echo "Building pdf.."
 	@$(TPST) $<
 
-# Просмотр
-run-report:
-	@echo "--- Opening Report ---"
-	@$(ZTHR) $(RPRT) &
-
-clean:
-	@echo "--- Cleaning ---"
-	$(RM) $(RPRT)
-	$(RM) $(LAB1_DIR)/assets/*.png
+clean-report: 
+	@echo "Cleaning the report.."
+	@$(RM) $(RPRT)
