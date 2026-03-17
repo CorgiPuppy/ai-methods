@@ -67,15 +67,15 @@ X_test = scaler.transform(X_test)
 
 model_single = Sequential([Dense(1, input_dim=X_train.shape[1])])
 model_single.compile(optimizer='adam', loss='mean_squared_error')
-history_single = model_single.fit(X_train, y_train, epochs=20, validation_split=0.2, verbose=0)
+history_single = model_single.fit(X_train, y_train, epochs=500, batch_size=64, validation_split=0.2, verbose=0)
 
 model_multi = Sequential([
-    Dense(64, activation='relu', input_dim=X_train.shape[1]),
-    Dense(64, activation='relu'),
-    Dense(1)
+    Dense(3, activation='relu', input_dim=X_train.shape[1]),
+    Dense(3, activation='relu'),
+    Dense(1, activation='linear')
 ])
 model_multi.compile(optimizer='adam', loss='mean_squared_error')
-history_multi = model_multi.fit(X_train, y_train, epochs=20, validation_split=0.2, verbose=0)
+history_multi = model_multi.fit(X_train, y_train, epochs=40, batch_size=64, validation_split=0.2, verbose=0)
 
 plt.figure(figsize=(10, 5))
 plt.plot(history_multi.history['loss'], label='Train')
@@ -106,6 +106,6 @@ plt.close()
 y_p_s = model_single.predict(X_test)
 y_p_m = model_multi.predict(X_test)
 
-print("\n--- TEST RESULTS ---")
+print("\nТестове результты")
 print(f"SINGLE: MSE={model_single.evaluate(X_test, y_test, verbose=0):.2f}, MAE={mean_absolute_error(y_test, y_p_s):.2f}, R2={r2_score(y_test, y_p_s):.4f}")
 print(f"MULTI:  MSE={model_multi.evaluate(X_test, y_test, verbose=0):.2f}, MAE={mean_absolute_error(y_test, y_p_m):.2f}, R2={r2_score(y_test, y_p_m):.4f}")
