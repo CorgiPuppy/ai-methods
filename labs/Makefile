@@ -1,5 +1,6 @@
 REPORT_DIR := report
 LAB1_DIR := lab1
+LAB2_DIR := lab2
 
 RPRT := $(REPORT_DIR)/report.pdf
 
@@ -9,11 +10,15 @@ ZTHR := zathura
 
 .PHONY: all
 
-all: clean-report run-src run-report
+all: clean-report run-lab1 run-report
 
-run-src:
+run-lab1:
 	@echo "--- Running Lab 1 Source ---"
 	@$(PY3) $(LAB1_DIR)/src/main.py
+
+run-lab2:
+	@echo "--- Running Lab 2 Source ---"
+	@$(PY3) $(LAB2_DIR)/src/main.py
 
 run-report: $(RPRT)
 	@echo "Running a report.."
