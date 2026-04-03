@@ -5,7 +5,8 @@ LAB2_DIR := lab2
 RPRT := $(REPORT_DIR)/report.pdf
 
 TPST := typst compile --font-path ~/../../mnt/c/Windows/Fonts --root .
-PY3 := python3
+VENV_DIR := $(PWD)/venv
+PY3 := $(VENV_DIR)/bin/python3
 ZTHR := zathura
 
 .PHONY: all
@@ -18,6 +19,7 @@ run-lab1:
 
 run-lab2:
 	@echo "--- Running Lab 2 Source ---"
+	. venv/bin/activate
 	@$(PY3) $(LAB2_DIR)/src/main.py
 
 run-report: $(RPRT)

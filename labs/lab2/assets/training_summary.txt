@@ -1,0 +1,5 @@
+Итоговые результаты обучения
+Лучшая точность MLP на валидации: 0.9779
+Лучшая точность CNN на валидации: 0.9901
+Файл весов MLP: /home/corgi/git-repos/ai-methods/labs/lab2/assets/models/mlp_best.pth
+Файл весов CNN: /home/corgi/git-repos/ai-methods/labs/lab2/assets/models/cnn_best.pth

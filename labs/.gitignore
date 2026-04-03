@@ -1,0 +1,27 @@
+# Создайте .gitignore если ещё нет
+cat > .gitignore << 'EOF'
+# Virtual Environment
+venv/
+env/
+ENV/
+
+# Python
+__pycache__/
+*.py[cod]
+*.so
+*.dylib
+*.dll
+
+# Jupyter
+.ipynb_checkpoints/
+
+# IDE
+.vscode/
+.idea/
+
+# OS
+.DS_Store
+EOF
+
+# Добавьте .gitignore в Git
+git add .gitignore
