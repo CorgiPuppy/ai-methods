@@ -1,147 +1,336 @@
 import os
-import io
-import time
+from pathlib import Path
+
 import numpy as np
 import pandas as pd
 import matplotlib.pyplot as plt
-import seaborn as sns
-import math
-from PIL import Image, ImageOps # Для работы с твоими фото
+from PIL import Image
 
+import torch
+import torch.nn as nn
+import torch.optim as optim
+import torch.nn.functional as F
+
+from torch.utils.data import Dataset, DataLoader
 from sklearn.model_selection import train_test_split
-from sklearn.metrics import confusion_matrix, classification_report
 
-from keras.models import Sequential
-from keras.layers import (Dense, Dropout, Flatten,
-                          Conv2D, MaxPool2D, BatchNormalization, Input)
-from keras.utils import to_categorical
-from tensorflow.keras.optimizers import Adam
-from tensorflow.keras.callbacks import EarlyStopping, ReduceLROnPlateau
 
-# Отключаем системные логи TF
-os.environ['TF_CPP_MIN_LOG_LEVEL'] = '3'
+BASE_DIR = Path(__file__).resolve().parent
+LAB2_DIR = BASE_DIR.parent
+DATA_DIR = LAB2_DIR / "data"
+ASSETS_DIR = LAB2_DIR / "assets"
+WEIGHTS_DIR = ASSETS_DIR / "models"
 
-BASE_DIR = os.path.dirname(os.path.abspath(__file__))
-DATA_PATH = os.path.join(BASE_DIR, '..', 'data', 'train.csv')
-MY_NUMBERS_PATH = os.path.join(BASE_DIR, '..', 'data', 'my_numbers')
-ASSETS_DIR = os.path.join(BASE_DIR, '..', 'assets')
-os.makedirs(ASSETS_DIR, exist_ok=True)
+TRAIN_PATH = DATA_DIR / "train.csv"
+MY_DIGITS_PATH = DATA_DIR / "my_numbers"
 
-def save_txt(filename, content):
-    with open(os.path.join(ASSETS_DIR, filename), 'w', encoding='utf-8') as f:
-        f.write(content)
+ASSETS_DIR.mkdir(parents=True, exist_ok=True)
+WEIGHTS_DIR.mkdir(parents=True, exist_ok=True)
 
-def log_stage(msg):
-    print(f"[{time.strftime('%H:%M:%S')}] {msg}")
+DEVICE = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
-def run_lab():
-    log_stage("Начало выполнения Лабораторной работы №2")
 
-    # --- 1. Загрузка данных ---
-    log_stage("Загрузка данных из CSV...")
-    df_raw = pd.read_csv(DATA_PATH)
-    df = df_raw.drop(columns=["Unnamed: 0"]) if "Unnamed: 0" in df_raw.columns else df_raw
-    
-    buffer = io.StringIO()
-    df.info(buf=buffer)
-    save_txt('data_info.txt', buffer.getvalue())
+class DigitDataset(Dataset):
+    def __init__(self, x_data, y_data=None):
+        self.x_data = x_data.values if isinstance(x_data, pd.DataFrame) else x_data
+        self.y_data = y_data.values if hasattr(y_data, "values") else y_data
 
-    X = df.drop('label', axis=1).values / 255.0
-    y = df['label'].values
+    def __len__(self):
+        return len(self.x_data)
 
-    log_stage("Генерация средних изображений (EDA)...")
-    fig, axes = plt.subplots(2, 5, figsize=(12, 5))
-    for digit, ax in enumerate(axes.flatten()):
-        mean_img = X[y == digit].mean(axis=0).reshape(28, 28)
-        ax.imshow(mean_img, cmap='hot')
-        ax.set_title(f'Digit {digit}')
-        ax.axis('off')
-    plt.savefig(os.path.join(ASSETS_DIR, 'mean_images.png'))
+    def __getitem__(self, idx):
+        image = self.x_data[idx].reshape(28, 28).astype(np.float32) / 255.0
+        image = torch.tensor(image).unsqueeze(0)
+
+        if self.y_data is None:
+            return image
+
+        label = int(self.y_data[idx])
+        return image, label
+
+
+class MLPModel(nn.Module):
+    def __init__(self):
+        super().__init__()
+        self.network = nn.Sequential(
+            nn.Linear(784, 384),
+            nn.ReLU(),
+            nn.Dropout(0.2),
+            nn.Linear(384, 128),
+            nn.ReLU(),
+            nn.Dropout(0.2),
+            nn.Linear(128, 10),
+        )
+
+    def forward(self, x):
+        x = x.view(x.size(0), -1)
+        return self.network(x)
+
+
+class CNNModel(nn.Module):
+    def __init__(self):
+        super().__init__()
+        self.conv_1 = nn.Conv2d(1, 32, kernel_size=3, padding=1)
+        self.conv_2 = nn.Conv2d(32, 64, kernel_size=3, padding=1)
+        self.pool = nn.MaxPool2d(2, 2)
+
+        self.fc_1 = nn.Linear(64 * 7 * 7, 128)
+        self.fc_2 = nn.Linear(128, 10)
+        self.dropout = nn.Dropout(0.25)
+
+    def forward(self, x):
+        x = self.pool(F.relu(self.conv_1(x)))
+        x = self.pool(F.relu(self.conv_2(x)))
+        x = x.view(x.size(0), -1)
+        x = F.relu(self.fc_1(x))
+        x = self.dropout(x)
+        x = self.fc_2(x)
+        return x
+
+
+def prepare_data(batch_size=64):
+    print("Загрузка датасета...")
+    df = pd.read_csv(TRAIN_PATH)
+
+    features = df.drop("label", axis=1)
+    target = df["label"]
+
+    x_train, x_valid, y_train, y_valid = train_test_split(
+        features,
+        target,
+        test_size=0.2,
+        random_state=42,
+        stratify=target
+    )
+
+    train_ds = DigitDataset(x_train, y_train)
+    valid_ds = DigitDataset(x_valid, y_valid)
+
+    train_loader = DataLoader(train_ds, batch_size=batch_size, shuffle=True)
+    valid_loader = DataLoader(valid_ds, batch_size=batch_size, shuffle=False)
+
+    with open(ASSETS_DIR / "dataset_info.txt", "w", encoding="utf-8") as f:
+        f.write("Информация о данных\n")
+        f.write(f"Размер обучающей выборки: {x_train.shape}\n")
+        f.write(f"Размер валидационной выборки: {x_valid.shape}\n")
+        f.write(f"Количество классов: {len(sorted(target.unique()))}\n")
+        f.write(f"Классы: {sorted(target.unique().tolist())}\n")
+
+    return train_loader, valid_loader
+
+
+def one_pass(model, loader, criterion, optimizer=None):
+    train_mode = optimizer is not None
+
+    if train_mode:
+        model.train()
+    else:
+        model.eval()
+
+    loss_sum = 0.0
+    correct_sum = 0
+    object_sum = 0
+
+    with torch.set_grad_enabled(train_mode):
+        for images, labels in loader:
+            images = images.to(DEVICE)
+            labels = labels.to(DEVICE)
+
+            if train_mode:
+                optimizer.zero_grad()
+
+            outputs = model(images)
+            loss = criterion(outputs, labels)
+
+            if train_mode:
+                loss.backward()
+                optimizer.step()
+
+            loss_sum += loss.item() * images.size(0)
+            predicts = torch.argmax(outputs, dim=1)
+            correct_sum += (predicts == labels).sum().item()
+            object_sum += labels.size(0)
+
+    mean_loss = loss_sum / object_sum
+    mean_acc = correct_sum / object_sum
+
+    return mean_loss, mean_acc
+
+
+def draw_training_curves(history, model_label, file_name):
+    epochs = range(1, len(history["train_loss"]) + 1)
+
+    plt.figure(figsize=(12, 5))
+
+    plt.subplot(1, 2, 1)
+    plt.plot(epochs, history["train_loss"], label="Обучение")
+    plt.plot(epochs, history["valid_loss"], label="Валидация")
+    plt.title(f"{model_label}: функция потерь")
+    plt.xlabel("Эпоха")
+    plt.ylabel("Loss")
+    plt.legend()
+
+    plt.subplot(1, 2, 2)
+    plt.plot(epochs, history["train_acc"], label="Обучение")
+    plt.plot(epochs, history["valid_acc"], label="Валидация")
+    plt.title(f"{model_label}: точность")
+    plt.xlabel("Эпоха")
+    plt.ylabel("Accuracy")
+    plt.legend()
+
+    plt.tight_layout()
+    plt.savefig(ASSETS_DIR / file_name)
     plt.close()
 
-    X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.2, random_state=42, stratify=y)
-    X_train_cnn = X_train.reshape(-1, 28, 28, 1)
-    X_test_cnn  = X_test.reshape(-1, 28, 28, 1)
-    y_train_cat = to_categorical(y_train, 10)
-    y_test_cat  = to_categorical(y_test, 10)
 
-    # --- 2. Эксперимент с эпохами ---
-    log_stage("Запуск эксперимента с эпохами...")
-    epochs_list = [3, 5, 10]
-    mlp_acc, cnn_acc = [], []
-    for ep in epochs_list:
-        m1 = Sequential([Input(shape=(784,)), Dense(8, activation='relu'), Dense(10, activation='softmax')])
-        m1.compile(optimizer='adam', loss='categorical_crossentropy', metrics=['accuracy'])
-        m1.fit(X_train, y_train_cat, epochs=ep, batch_size=512, verbose=0)
-        mlp_acc.append(m1.evaluate(X_test, y_test_cat, verbose=0)[1])
-        
-        m2 = Sequential([Input(shape=(28, 28, 1)), Conv2D(2, (3, 3), activation='relu'), MaxPool2D((2, 2)), Flatten(), Dense(10, activation='softmax')])
-        m2.compile(optimizer='adam', loss='categorical_crossentropy', metrics=['accuracy'])
-        m2.fit(X_train_cnn, y_train_cat, epochs=ep, batch_size=512, verbose=0)
-        cnn_acc.append(m2.evaluate(X_test_cnn, y_test_cat, verbose=0)[1])
+def train_model(model, train_loader, valid_loader, model_label, weight_name, plot_name, epochs=10, lr=0.001):
+    print(f"\nНачало обучения модели: {model_label}")
 
-    plt.figure(figsize=(8, 5))
-    plt.plot(epochs_list, mlp_acc, label='MLP', marker='o')
-    plt.plot(epochs_list, cnn_acc, label='CNN', marker='s')
-    plt.xlabel('Epochs'); plt.ylabel('Accuracy'); plt.legend(); plt.grid(True)
-    plt.savefig(os.path.join(ASSETS_DIR, 'epochs_impact.png'))
-    plt.close()
+    criterion = nn.CrossEntropyLoss()
+    optimizer = optim.Adam(model.parameters(), lr=lr)
+    scheduler = optim.lr_scheduler.StepLR(optimizer, step_size=5, gamma=0.5)
 
-    # --- 3. Финальное обучение ---
-    log_stage("Финальное обучение моделей...")
-    mlp_model = Sequential([Input(shape=(784,)), Dense(128, activation='relu'), Dense(10, activation='softmax')])
-    mlp_model.compile(optimizer='adam', loss='categorical_crossentropy', metrics=['accuracy'])
-    mlp_model.fit(X_train, y_train_cat, epochs=5, batch_size=512, verbose=0)
+    history = {
+        "train_loss": [],
+        "train_acc": [],
+        "valid_loss": [],
+        "valid_acc": [],
+    }
 
-    cnn_model = Sequential([Input(shape=(28, 28, 1)), Conv2D(16, (3,3), activation='relu'), MaxPool2D((2,2)), Flatten(), Dense(10, activation='softmax')])
-    cnn_model.compile(optimizer='adam', loss='categorical_crossentropy', metrics=['accuracy'])
-    cnn_model.fit(X_train_cnn, y_train_cat, epochs=5, batch_size=512, verbose=0)
+    best_acc = 0.0
+    best_path = WEIGHTS_DIR / weight_name
 
-    # --- 4. Тестирование на твоих фото ---
-    log_stage("Тестирование на собственных фотографиях...")
-    custom_results = []
-    fig, axes = plt.subplots(2, 5, figsize=(15, 7))
+    for epoch in range(1, epochs + 1):
+        train_loss, train_acc = one_pass(model, train_loader, criterion, optimizer=optimizer)
+        valid_loss, valid_acc = one_pass(model, valid_loader, criterion, optimizer=None)
 
-    for i in range(10):
-        img_path = os.path.join(MY_NUMBERS_PATH, f"{i}.jpg")
-        if os.path.exists(img_path):
-            img = Image.open(img_path).convert('L')
+        scheduler.step()
 
-            # 1. Сначала уменьшаем — LANCZOS сгладит мелкие линии клеток
-            img = img.resize((28, 28), Image.LANCZOS)
+        history["train_loss"].append(train_loss)
+        history["train_acc"].append(train_acc)
+        history["valid_loss"].append(valid_loss)
+        history["valid_acc"].append(valid_acc)
 
-            # 2. Переводим в массив
-            img_array = np.array(img, dtype=np.float32)
+        print(
+            f"{model_label} | эпоха {epoch}/{epochs} | "
+            f"loss train={train_loss:.4f}, acc train={train_acc:.4f} | "
+            f"loss val={valid_loss:.4f}, acc val={valid_acc:.4f}"
+        )
 
-            # 3. Инвертируем (тёмная цифра на светлом фоне → светлая на тёмном)
-            if img_array.mean() > 127:
-                img_array = 255.0 - img_array
+        if valid_acc > best_acc:
+            best_acc = valid_acc
+            torch.save(model.state_dict(), best_path)
 
-            # 4. Агрессивный порог — убираем ВСЁ кроме самой цифры
-            #    Всё что тусклее порога → чёрный (0)
-            img_array[img_array < 120] = 0
+    draw_training_curves(history, model_label, plot_name)
 
-            # 5. Нормализация
-            img_array = img_array / 255.0
+    return best_acc, best_path
 
-            pred_mlp = np.argmax(mlp_model.predict(img_array.reshape(1, 784), verbose=0))
-            pred_cnn = np.argmax(cnn_model.predict(img_array.reshape(1, 28, 28, 1), verbose=0))
 
-            ax = axes.flatten()[i]
-            ax.imshow(img_array, cmap='gray')
-            ax.set_title(f"Real: {i}\nMLP: {pred_mlp}, CNN: {pred_cnn}")
-            ax.axis('off')
-            custom_results.append(f"Цифра {i}: MLP={pred_mlp}, CNN={pred_cnn}")
+def preprocess_my_image(image_path):
+    image = Image.open(image_path).convert("L")
+    image = image.resize((28, 28), Image.Resampling.LANCZOS)
 
-    # Матрицы ошибок и отчеты
-    for name, model, data in [('MLP', mlp_model, X_test), ('CNN', cnn_model, X_test_cnn)]:
-        pred = np.argmax(model.predict(data, verbose=0), axis=1)
-        plt.figure(figsize=(8, 6))
-        sns.heatmap(confusion_matrix(y_test, pred), annot=True, fmt='d', cmap='Blues')
-        plt.savefig(os.path.join(ASSETS_DIR, f'{name.lower()}_confusion.png'))
-        plt.close()
+    image_array = np.array(image, dtype=np.float32)
 
-    log_stage("Готово! Проверь assets/custom_test.png")
+    if image_array.mean() > 127:
+        image_array = 255 - image_array
+
+    image_array = image_array / 255.0
+    tensor = torch.tensor(image_array).unsqueeze(0)
+
+    return tensor
+
+
+def predict_folder(model, folder_path):
+    results = {}
+
+    if not folder_path.exists():
+        return results
+
+    files = sorted([x for x in os.listdir(folder_path) if x.lower().endswith(".png")])
+
+    model.eval()
+    with torch.no_grad():
+        for file_name in files:
+            full_path = folder_path / file_name
+            image_tensor = preprocess_my_image(full_path).unsqueeze(0).to(DEVICE)
+            logits = model(image_tensor)
+            pred = int(torch.argmax(logits, dim=1).item())
+            results[file_name] = pred
+
+    return results
+
+
+def save_predictions_block(title, predictions, out_file):
+    with open(out_file, "a", encoding="utf-8") as f:
+        f.write(title + "\n")
+        for name, pred in predictions.items():
+            f.write(f"{name} -> {pred}\n")
+        f.write("\n")
+
+
+def main():
+    print(f"Используемое устройство: {DEVICE}")
+
+    train_loader, valid_loader = prepare_data(batch_size=64)
+
+    mlp_model = MLPModel().to(DEVICE)
+    cnn_model = CNNModel().to(DEVICE)
+
+    mlp_acc, mlp_best_path = train_model(
+        model=mlp_model,
+        train_loader=train_loader,
+        valid_loader=valid_loader,
+        model_label="MLP",
+        weight_name="mlp_best.pth",
+        plot_name="mlp_curves.png",
+        epochs=10,
+        lr=0.001
+    )
+
+    cnn_acc, cnn_best_path = train_model(
+        model=cnn_model,
+        train_loader=train_loader,
+        valid_loader=valid_loader,
+        model_label="CNN",
+        weight_name="cnn_best.pth",
+        plot_name="cnn_curves.png",
+        epochs=10,
+        lr=0.001
+    )
+
+    with open(ASSETS_DIR / "training_summary.txt", "w", encoding="utf-8") as f:
+        f.write("Итоговые результаты обучения\n")
+        f.write(f"Лучшая точность MLP на валидации: {mlp_acc:.4f}\n")
+        f.write(f"Лучшая точность CNN на валидации: {cnn_acc:.4f}\n")
+        f.write(f"Файл весов MLP: {mlp_best_path}\n")
+        f.write(f"Файл весов CNN: {cnn_best_path}\n")
+
+    print("\nПроверка моделей на собственных изображениях...")
+
+    mlp_model.load_state_dict(torch.load(mlp_best_path, map_location=DEVICE))
+    cnn_model.load_state_dict(torch.load(cnn_best_path, map_location=DEVICE))
+
+    predictions_file = ASSETS_DIR / "my_digits_predictions.txt"
+    if predictions_file.exists():
+        os.remove(predictions_file)
+
+    mlp_predictions = predict_folder(mlp_model, MY_DIGITS_PATH)
+    cnn_predictions = predict_folder(cnn_model, MY_DIGITS_PATH)
+
+    print("\nПредсказания MLP:")
+    for name, pred in mlp_predictions.items():
+        print(f"{name}: {pred}")
+
+    print("\nПредсказания CNN:")
+    for name, pred in cnn_predictions.items():
+        print(f"{name}: {pred}")
+
+    save_predictions_block("Предсказания MLP", mlp_predictions, predictions_file)
+    save_predictions_block("Предсказания CNN", cnn_predictions, predictions_file)
+
+    print("\nРабота завершена. Результаты сохранены в папке lab2/assets/.")
+
 
 if __name__ == "__main__":
-    run_lab()
+    main()
