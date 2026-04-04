@@ -361,6 +361,68 @@ def save_my_numbers_results(title, rows, out_path):
             f.write(f"{file_name} | {mode_name} -> {pred}\n")
         f.write("\n")
 
+def save_my_numbers_comparison_grid(
+    folder_path,
+    baseline_model,
+    augmented_model,
+    out_name="my_numbers_comparison_grid.png"
+):
+    if not folder_path.exists():
+        return
+
+    files = sorted([x for x in os.listdir(folder_path) if x.lower().endswith(".png")])
+    if len(files) == 0:
+        return
+
+    tiles = []
+
+    baseline_model.eval()
+    augmented_model.eval()
+
+    with torch.no_grad():
+        for file_name in files:
+            full_path = folder_path / file_name
+            base_tensor = preprocess_my_image(full_path)
+            aug_tensor = make_augmented_copy(base_tensor)
+
+            b_orig = int(torch.argmax(baseline_model(base_tensor.unsqueeze(0).to(DEVICE)), dim=1).item())
+            b_aug = int(torch.argmax(baseline_model(aug_tensor.unsqueeze(0).to(DEVICE)), dim=1).item())
+
+            a_orig = int(torch.argmax(augmented_model(base_tensor.unsqueeze(0).to(DEVICE)), dim=1).item())
+            a_aug = int(torch.argmax(augmented_model(aug_tensor.unsqueeze(0).to(DEVICE)), dim=1).item())
+
+            tiles.append({
+                "image": base_tensor.squeeze(0).cpu().numpy(),
+                "title": f"orig {file_name}\nB: {b_orig}\nA: {a_orig}"
+            })
+
+            tiles.append({
+                "image": aug_tensor.squeeze(0).cpu().numpy(),
+                "title": f"aug {file_name}\nB: {b_aug}\nA: {a_aug}"
+            })
+
+    count = len(tiles)
+    cols = 5
+    rows = int(np.ceil(count / cols))
+
+    fig, axes = plt.subplots(rows, cols, figsize=(cols * 2.6, rows * 3.1))
+    axes = np.array(axes).reshape(rows, cols)
+
+    for idx in range(rows * cols):
+        ax = axes[idx // cols, idx % cols]
+        ax.axis("off")
+
+        if idx >= count:
+            continue
+
+        tile = tiles[idx]
+        ax.imshow(tile["image"], cmap="gray")
+        ax.set_title(tile["title"], fontsize=9)
+
+    plt.tight_layout()
+    plt.savefig(ASSETS_DIR / out_name, dpi=180)
+    plt.close()
+
 def extract_feature_maps(model, image_tensor):
     with torch.no_grad():
         x = image_tensor.unsqueeze(0).to(DEVICE)
@@ -532,6 +594,13 @@ def main():
 
     write_summary(report_data)
 
+    save_my_numbers_comparison_grid(
+        MY_NUMBERS_PATH,
+        baseline_cnn,
+        augmented_cnn,
+        out_name="my_numbers_comparison_grid.png"
+    )
+    
     print("\nЛабораторная работа 3 завершена.")
     print("Все результаты сохранены в папке lab3/assets/.")
 

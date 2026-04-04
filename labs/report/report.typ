@@ -336,10 +336,11 @@ $
 ])
 
 #figure(
-	image("../lab2/assets/my_numbers_grid.png", width: 80%),
-	caption: [Собственные изображения цифр для тестирования],
+	image("../lab2/assets/my_numbers_predictions_grid.png", width: 90%),
+	caption: [Собственные изображения цифр и предсказания моделей MLP и CNN],
 	supplement: [Рис.]
 )
+
 
 После обучения лучшая версия каждой модели была протестирована на собственных изображениях цифр, размещённых в папке `lab2/data/my_digits`. Изображения предварительно приводились к оттенкам серого, масштабировались до размера $28 times 28$ и нормализовались.
 
@@ -387,73 +388,79 @@ $
 
 
 #align(center, block[
-== 3.3. Практическая часть
+	== 3.3. Практическая часть
 ])
 
 #align(center, block[
-=== 3.3.1. Baseline-модель
+	=== 3.3.1. Baseline-модель
 ])
 
 В качестве исходной модели была использована свёрточная нейронная сеть без аугментации обучающих данных. Сначала модель была обучена на обычной обучающей выборке, затем протестирована как на обычной валидации, так и на аугментированной валидации.
 
 #grid(
-columns: (1fr, 1fr),
-gutter: 10pt,
-figure(
-image("../lab3/assets/baseline_cnn_curves.png"),
-caption: [Графики обучения baseline CNN],
-supplement: [Рис.]
-),
-figure(
-image("../lab3/assets/baseline_confusion_matrix_augmented_valid.png"),
-caption: [Матрица ошибок baseline CNN на аугментированной валидации],
-supplement: [Рис.]
-)
+	columns: (1fr, 1fr),
+	gutter: 10pt,
+	figure(
+		image("../lab3/assets/baseline_cnn_curves.png"),
+		caption: [Графики обучения baseline CNN],
+		supplement: [Рис.]
+	),
+	figure(
+		image("../lab3/assets/baseline_confusion_matrix_augmented_valid.png"),
+		caption: [Матрица ошибок baseline CNN на аугментированной валидации],
+		supplement: [Рис.]
+	)
 )
 
 #align(center, block[
-=== 3.3.2. CNN с аугментированным обучением
+	=== 3.3.2. CNN с аугментированным обучением
 ])
 
 Далее была обучена аналогичная архитектура CNN, но уже с аугментацией обучающих данных. Это позволило оценить, как аугментация влияет на устойчивость модели к искажённым входным изображениям.
 
 #grid(
-columns: (1fr, 1fr),
-gutter: 10pt,
-figure(
-image("../lab3/assets/augmented_cnn_curves.png"),
-caption: [Графики обучения CNN с аугментацией],
-supplement: [Рис.]
-),
-figure(
-image("../lab3/assets/augmented_confusion_matrix_augmented_valid.png"),
-caption: [Матрица ошибок CNN с аугментацией на аугментированной валидации],
-supplement: [Рис.]
-)
+	columns: (1fr, 1fr),
+	gutter: 10pt,
+	figure(
+		image("../lab3/assets/augmented_cnn_curves.png"),
+		caption: [Графики обучения CNN с аугментацией],
+		supplement: [Рис.]
+	),
+	figure(
+		image("../lab3/assets/augmented_confusion_matrix_augmented_valid.png"),
+		caption: [Матрица ошибок CNN с аугментацией на аугментированной валидации],
+		supplement: [Рис.]
+		)
 )
 
 Сводные численные результаты экспериментов сохранены в файл `lab3/assets/lab3_summary.txt`.
 
 #block(fill: luma(240), inset: 10pt, radius: 5pt, width: 100%)[
-#set text(size: 8pt, font: "Courier New")
-#raw(read("../lab3/assets/lab3_summary.txt"))
+	#set text(size: 8pt, font: "Courier New")
+	#raw(read("../lab3/assets/lab3_summary.txt"))
 ]
 
 #align(center, block[
-=== 3.3.3. Проверка на собственных изображениях
+	=== 3.3.3. Проверка на собственных изображениях
 ])
 
 Обе модели были дополнительно протестированы на собственных изображениях цифр, а также на их аугментированных версиях. Это позволило оценить, насколько хорошо каждая модель переносится на реальные данные, не входившие в исходный датасет.
 
+#figure(
+	image("../lab3/assets/my_numbers_comparison_grid.png", width: 95%),
+	caption: [Сравнение предсказаний baseline CNN и CNN с аугментацией на обычных и аугментированных собственных изображениях],
+	supplement: [Рис.]
+)
+
 Результаты сохранены в файл `lab3/assets/my_numbers_comparison.txt`.
 
 #block(fill: luma(240), inset: 10pt, radius: 5pt, width: 100%)[
-#set text(size: 8pt, font: "Courier New")
-#raw(read("../lab3/assets/my_numbers_comparison.txt"))
+	#set text(size: 8pt, font: "Courier New")
+	#raw(read("../lab3/assets/my_numbers_comparison.txt"))
 ]
 
 #align(center, block[
-=== 3.3.4. Визуализация карт признаков
+	=== 3.3.4. Визуализация карт признаков
 ])
 
 Для нескольких собственных изображений были сохранены карты признаков после:

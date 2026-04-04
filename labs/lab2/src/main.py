@@ -356,6 +356,44 @@ def save_my_numbers_grid(folder_path, out_name="my_numbers_grid.png"):
     plt.savefig(ASSETS_DIR / out_name)
     plt.close()
 
+def save_prediction_grid(folder_path, mlp_predictions, cnn_predictions, out_name="my_numbers_predictions_grid.png"):
+    if not folder_path.exists():
+        return
+
+    image_files = sorted([x for x in os.listdir(folder_path) if x.lower().endswith(".png")])
+
+    if len(image_files) == 0:
+        return
+
+    count = len(image_files)
+    cols = 5
+    rows = int(np.ceil(count / cols))
+
+    fig, axes = plt.subplots(rows, cols, figsize=(cols * 2.7, rows * 3.2))
+    axes = np.array(axes).reshape(rows, cols)
+
+    for idx in range(rows * cols):
+        ax = axes[idx // cols, idx % cols]
+        ax.axis("off")
+
+        if idx >= count:
+            continue
+
+        file_name = image_files[idx]
+        image = Image.open(folder_path / file_name).convert("L")
+
+        mlp_pred = mlp_predictions.get(file_name, "?")
+        cnn_pred = cnn_predictions.get(file_name, "?")
+
+        ax.imshow(image, cmap="gray")
+        ax.set_title(
+            f"{file_name}\nMLP: {mlp_pred}\nCNN: {cnn_pred}",
+            fontsize=9
+        )
+
+    plt.tight_layout()
+    plt.savefig(ASSETS_DIR / out_name, dpi=180)
+    plt.close()
 
 def main():
     print(f"Используемое устройство: {DEVICE}")
@@ -438,6 +476,13 @@ def main():
     save_predictions_block("Предсказания CNN", cnn_predictions, predictions_file)
 
     save_my_numbers_grid(MY_NUMBERS_PATH, out_name="my_numbers_grid.png")
+
+    save_prediction_grid(
+        MY_NUMBERS_PATH,
+        mlp_predictions,
+        cnn_predictions,
+        out_name="my_numbers_predictions_grid.png"
+    )
 
     print("\nРабота завершена. Результаты сохранены в папке lab2/assets/.")
 
