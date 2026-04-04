@@ -13,6 +13,7 @@ import torch.nn.functional as F
 
 from torch.utils.data import Dataset, DataLoader
 from sklearn.model_selection import train_test_split
+from sklearn.metrics import confusion_matrix
 
 
 BASE_DIR = Path(__file__).resolve().parent
@@ -22,7 +23,7 @@ ASSETS_DIR = LAB2_DIR / "assets"
 WEIGHTS_DIR = ASSETS_DIR / "models"
 
 TRAIN_PATH = DATA_DIR / "train.csv"
-MY_DIGITS_PATH = DATA_DIR / "my_numbers"
+MY_NUMBERS_PATH = DATA_DIR / "my_numbers"
 
 ASSETS_DIR.mkdir(parents=True, exist_ok=True)
 WEIGHTS_DIR.mkdir(parents=True, exist_ok=True)
@@ -53,10 +54,10 @@ class MLPModel(nn.Module):
     def __init__(self):
         super().__init__()
         self.network = nn.Sequential(
-            nn.Linear(784, 384),
+            nn.Linear(784, 320),
             nn.ReLU(),
             nn.Dropout(0.2),
-            nn.Linear(384, 128),
+            nn.Linear(320, 128),
             nn.ReLU(),
             nn.Dropout(0.2),
             nn.Linear(128, 10),
@@ -70,17 +71,32 @@ class MLPModel(nn.Module):
 class CNNModel(nn.Module):
     def __init__(self):
         super().__init__()
-        self.conv_1 = nn.Conv2d(1, 32, kernel_size=3, padding=1)
-        self.conv_2 = nn.Conv2d(32, 64, kernel_size=3, padding=1)
+
+        # Архитектура намеренно отличается от прошлой версии:
+        # 3 свёртки вместо 2, другие числа каналов
+        self.conv_1 = nn.Conv2d(1, 16, kernel_size=3, padding=1)
+        self.conv_2 = nn.Conv2d(16, 32, kernel_size=3, padding=1)
+        self.conv_3 = nn.Conv2d(32, 64, kernel_size=3, padding=1)
+
         self.pool = nn.MaxPool2d(2, 2)
 
-        self.fc_1 = nn.Linear(64 * 7 * 7, 128)
-        self.fc_2 = nn.Linear(128, 10)
+        # 28x28 -> conv1 -> 28x28
+        # -> conv2 -> 28x28
+        # -> pool -> 14x14
+        # -> conv3 -> 14x14
+        # -> pool -> 7x7
+        self.fc_1 = nn.Linear(64 * 7 * 7, 96)
+        self.fc_2 = nn.Linear(96, 10)
         self.dropout = nn.Dropout(0.25)
 
     def forward(self, x):
-        x = self.pool(F.relu(self.conv_1(x)))
-        x = self.pool(F.relu(self.conv_2(x)))
+        x = F.relu(self.conv_1(x))
+        x = F.relu(self.conv_2(x))
+        x = self.pool(x)
+
+        x = F.relu(self.conv_3(x))
+        x = self.pool(x)
+
         x = x.view(x.size(0), -1)
         x = F.relu(self.fc_1(x))
         x = self.dropout(x)
@@ -155,6 +171,45 @@ def one_pass(model, loader, criterion, optimizer=None):
     mean_acc = correct_sum / object_sum
 
     return mean_loss, mean_acc
+
+
+def collect_predictions(model, loader):
+    model.eval()
+
+    y_true = []
+    y_pred = []
+
+    with torch.no_grad():
+        for images, labels in loader:
+            images = images.to(DEVICE)
+            outputs = model(images)
+            preds = torch.argmax(outputs, dim=1).cpu().numpy()
+
+            y_true.extend(labels.numpy().tolist())
+            y_pred.extend(preds.tolist())
+
+    return np.array(y_true), np.array(y_pred)
+
+
+def save_confusion_matrix(y_true, y_pred, title, out_name):
+    cm = confusion_matrix(y_true, y_pred, labels=list(range(10)))
+
+    plt.figure(figsize=(8, 6))
+    plt.imshow(cm, cmap="Blues")
+    plt.title(title)
+    plt.xlabel("Предсказанный класс")
+    plt.ylabel("Истинный класс")
+    plt.xticks(range(10))
+    plt.yticks(range(10))
+
+    for i in range(cm.shape[0]):
+        for j in range(cm.shape[1]):
+            plt.text(j, i, int(cm[i, j]), ha="center", va="center", fontsize=8)
+
+    plt.colorbar()
+    plt.tight_layout()
+    plt.savefig(ASSETS_DIR / out_name)
+    plt.close()
 
 
 def draw_training_curves(history, model_label, file_name):
@@ -269,6 +324,39 @@ def save_predictions_block(title, predictions, out_file):
         f.write("\n")
 
 
+def save_my_numbers_grid(folder_path, out_name="my_numbers_grid.png"):
+    if not folder_path.exists():
+        return
+
+    image_files = sorted([x for x in os.listdir(folder_path) if x.lower().endswith(".png")])
+
+    if len(image_files) == 0:
+        return
+
+    count = len(image_files)
+    cols = 5
+    rows = int(np.ceil(count / cols))
+
+    fig, axes = plt.subplots(rows, cols, figsize=(cols * 2.2, rows * 2.5))
+    axes = np.array(axes).reshape(rows, cols)
+
+    for idx in range(rows * cols):
+        ax = axes[idx // cols, idx % cols]
+        ax.axis("off")
+
+        if idx >= count:
+            continue
+
+        file_name = image_files[idx]
+        image = Image.open(folder_path / file_name).convert("L")
+        ax.imshow(image, cmap="gray")
+        ax.set_title(file_name, fontsize=10)
+
+    plt.tight_layout()
+    plt.savefig(ASSETS_DIR / out_name)
+    plt.close()
+
+
 def main():
     print(f"Используемое устройство: {DEVICE}")
 
@@ -299,6 +387,29 @@ def main():
         lr=0.001
     )
 
+    # Загружаем лучшие версии
+    mlp_model.load_state_dict(torch.load(mlp_best_path, map_location=DEVICE))
+    cnn_model.load_state_dict(torch.load(cnn_best_path, map_location=DEVICE))
+
+    # confusion matrix
+    mlp_true, mlp_pred = collect_predictions(mlp_model, valid_loader)
+    cnn_true, cnn_pred = collect_predictions(cnn_model, valid_loader)
+
+    save_confusion_matrix(
+        mlp_true,
+        mlp_pred,
+        "Матрица ошибок MLP",
+        "mlp_confusion_matrix.png"
+    )
+
+    save_confusion_matrix(
+        cnn_true,
+        cnn_pred,
+        "Матрица ошибок CNN",
+        "cnn_confusion_matrix.png"
+    )
+
+    # summary
     with open(ASSETS_DIR / "training_summary.txt", "w", encoding="utf-8") as f:
         f.write("Итоговые результаты обучения\n")
         f.write(f"Лучшая точность MLP на валидации: {mlp_acc:.4f}\n")
@@ -308,15 +419,12 @@ def main():
 
     print("\nПроверка моделей на собственных изображениях...")
 
-    mlp_model.load_state_dict(torch.load(mlp_best_path, map_location=DEVICE))
-    cnn_model.load_state_dict(torch.load(cnn_best_path, map_location=DEVICE))
-
     predictions_file = ASSETS_DIR / "my_digits_predictions.txt"
     if predictions_file.exists():
         os.remove(predictions_file)
 
-    mlp_predictions = predict_folder(mlp_model, MY_DIGITS_PATH)
-    cnn_predictions = predict_folder(cnn_model, MY_DIGITS_PATH)
+    mlp_predictions = predict_folder(mlp_model, MY_NUMBERS_PATH)
+    cnn_predictions = predict_folder(cnn_model, MY_NUMBERS_PATH)
 
     print("\nПредсказания MLP:")
     for name, pred in mlp_predictions.items():
@@ -328,6 +436,8 @@ def main():
 
     save_predictions_block("Предсказания MLP", mlp_predictions, predictions_file)
     save_predictions_block("Предсказания CNN", cnn_predictions, predictions_file)
+
+    save_my_numbers_grid(MY_NUMBERS_PATH, out_name="my_numbers_grid.png")
 
     print("\nРабота завершена. Результаты сохранены в папке lab2/assets/.")
 

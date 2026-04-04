@@ -11,7 +11,7 @@ import torch.nn as nn
 import torch.optim as optim
 import torch.nn.functional as F
 
-from torch.utils.data import Dataset, DataLoader, ConcatDataset
+from torch.utils.data import Dataset, DataLoader
 from torchvision import transforms
 from sklearn.model_selection import train_test_split
 from sklearn.metrics import confusion_matrix, precision_recall_fscore_support
@@ -61,17 +61,25 @@ class DigitDataset(Dataset):
 class CNNModel(nn.Module):
     def __init__(self):
         super().__init__()
-        self.conv_1 = nn.Conv2d(1, 32, kernel_size=3, padding=1)
-        self.conv_2 = nn.Conv2d(32, 64, kernel_size=3, padding=1)
+
+        self.conv_1 = nn.Conv2d(1, 16, kernel_size=3, padding=1)
+        self.conv_2 = nn.Conv2d(16, 32, kernel_size=3, padding=1)
+        self.conv_3 = nn.Conv2d(32, 64, kernel_size=3, padding=1)
+
         self.pool = nn.MaxPool2d(2, 2)
 
-        self.fc_1 = nn.Linear(64 * 7 * 7, 128)
-        self.fc_2 = nn.Linear(128, 10)
+        self.fc_1 = nn.Linear(64 * 7 * 7, 96)
+        self.fc_2 = nn.Linear(96, 10)
         self.dropout = nn.Dropout(0.25)
 
     def forward(self, x):
-        x = self.pool(F.relu(self.conv_1(x)))
-        x = self.pool(F.relu(self.conv_2(x)))
+        x = F.relu(self.conv_1(x))
+        x = F.relu(self.conv_2(x))
+        x = self.pool(x)
+
+        x = F.relu(self.conv_3(x))
+        x = self.pool(x)
+
         x = x.view(x.size(0), -1)
         x = F.relu(self.fc_1(x))
         x = self.dropout(x)
@@ -128,7 +136,7 @@ def prepare_dataloaders(batch_size=64, use_aug_train=False, use_aug_valid=False)
         f.write(f"Количество классов: {len(sorted(target.unique()))}\n")
         f.write(f"Классы: {sorted(target.unique().tolist())}\n")
 
-    return train_loader, valid_loader, x_valid, y_valid
+    return train_loader, valid_loader
 
 
 def one_pass(model, loader, criterion, optimizer=None):
@@ -238,8 +246,8 @@ def train_model(model, train_loader, valid_loader, model_label, weight_name, plo
 def evaluate_model(model, loader):
     model.eval()
 
-    true_labels = []
-    pred_labels = []
+    y_true = []
+    y_pred = []
 
     with torch.no_grad():
         for images, labels in loader:
@@ -247,20 +255,20 @@ def evaluate_model(model, loader):
             outputs = model(images)
             preds = torch.argmax(outputs, dim=1).cpu().numpy()
 
-            true_labels.extend(labels.numpy().tolist())
-            pred_labels.extend(preds.tolist())
+            y_true.extend(labels.numpy().tolist())
+            y_pred.extend(preds.tolist())
 
-    true_labels = np.array(true_labels)
-    pred_labels = np.array(pred_labels)
+    y_true = np.array(y_true)
+    y_pred = np.array(y_pred)
 
-    acc = float((true_labels == pred_labels).mean())
+    acc = float((y_true == y_pred).mean())
     precision, recall, f1, _ = precision_recall_fscore_support(
-        true_labels,
-        pred_labels,
+        y_true,
+        y_pred,
         average="macro",
         zero_division=0
     )
-    cm = confusion_matrix(true_labels, pred_labels, labels=list(range(10)))
+    cm = confusion_matrix(y_true, y_pred, labels=list(range(10)))
 
     return {
         "accuracy": acc,
@@ -271,7 +279,7 @@ def evaluate_model(model, loader):
     }
 
 
-def save_confusion_matrix(cm, title, file_name):
+def save_confusion_matrix(cm, title, out_name):
     plt.figure(figsize=(8, 6))
     plt.imshow(cm, cmap="Blues")
     plt.title(title)
@@ -286,7 +294,7 @@ def save_confusion_matrix(cm, title, file_name):
 
     plt.colorbar()
     plt.tight_layout()
-    plt.savefig(ASSETS_DIR / file_name)
+    plt.savefig(ASSETS_DIR / out_name)
     plt.close()
 
 
@@ -359,20 +367,21 @@ def extract_feature_maps(model, image_tensor):
         x = image_tensor.unsqueeze(0).to(DEVICE)
 
         conv1 = F.relu(model.conv_1(x))
-        pool1 = model.pool(conv1)
+        conv2 = F.relu(model.conv_2(conv1))
+        pool1 = model.pool(conv2)
 
-        conv2 = F.relu(model.conv_2(pool1))
-        pool2 = model.pool(conv2)
+        conv3 = F.relu(model.conv_3(pool1))
+        pool2 = model.pool(conv3)
 
     return {
         "conv1": conv1.squeeze(0).cpu(),
-        "pool1": pool1.squeeze(0).cpu(),
         "conv2": conv2.squeeze(0).cpu(),
+        "pool1": pool1.squeeze(0).cpu(),
         "pool2": pool2.squeeze(0).cpu(),
     }
 
 
-def save_feature_grid(feature_tensor, file_path, cols=8):
+def save_feature_grid(feature_tensor, out_path, cols=8):
     channels = feature_tensor.shape[0]
     rows = int(np.ceil(channels / cols))
 
@@ -398,8 +407,8 @@ def save_feature_grid(feature_tensor, file_path, cols=8):
         ax.set_title(f"#{idx}", fontsize=7)
 
     plt.tight_layout()
-    file_path.parent.mkdir(parents=True, exist_ok=True)
-    plt.savefig(file_path)
+    out_path.parent.mkdir(parents=True, exist_ok=True)
+    plt.savefig(out_path)
     plt.close()
 
 
@@ -437,8 +446,8 @@ def write_summary(report_data):
 def main():
     print(f"Используемое устройство: {DEVICE}")
 
-    # 1. baseline CNN без аугментации
-    train_loader_clean, valid_loader_clean, x_valid, y_valid = prepare_dataloaders(
+    # baseline CNN
+    train_loader_clean, valid_loader_clean = prepare_dataloaders(
         batch_size=64,
         use_aug_train=False,
         use_aug_valid=False
@@ -457,10 +466,9 @@ def main():
     )
 
     baseline_cnn.load_state_dict(torch.load(baseline_path, map_location=DEVICE))
-
     baseline_clean_metrics = evaluate_model(baseline_cnn, valid_loader_clean)
 
-    _, valid_loader_aug, _, _ = prepare_dataloaders(
+    _, valid_loader_aug = prepare_dataloaders(
         batch_size=64,
         use_aug_train=False,
         use_aug_valid=True
@@ -471,16 +479,14 @@ def main():
     save_confusion_matrix(
         baseline_aug_metrics["confusion_matrix"],
         "Baseline CNN на аугментированной валидации",
-        "confusion_matrix_baseline_extended.png"
+        "baseline_confusion_matrix_augmented_valid.png"
     )
 
     baseline_my_numbers = predict_my_numbers(baseline_cnn, MY_NUMBERS_PATH, add_augmented=True)
+    save_feature_maps_for_folder(baseline_cnn, MY_NUMBERS_PATH, FEATURE_MAPS_DIR / "baseline")
 
-    baseline_feature_root = FEATURE_MAPS_DIR / "baseline"
-    save_feature_maps_for_folder(baseline_cnn, MY_NUMBERS_PATH, baseline_feature_root)
-
-    # 2. CNN с аугментированным обучением
-    train_loader_aug, valid_loader_clean_2, _, _ = prepare_dataloaders(
+    # CNN с аугментацией
+    train_loader_aug, valid_loader_clean_2 = prepare_dataloaders(
         batch_size=64,
         use_aug_train=True,
         use_aug_valid=False
@@ -499,27 +505,24 @@ def main():
     )
 
     augmented_cnn.load_state_dict(torch.load(augmented_path, map_location=DEVICE))
-
     augmented_clean_metrics = evaluate_model(augmented_cnn, valid_loader_clean_2)
     augmented_aug_metrics = evaluate_model(augmented_cnn, valid_loader_aug)
 
     save_confusion_matrix(
         augmented_aug_metrics["confusion_matrix"],
         "CNN с аугментацией на аугментированной валидации",
-        "confusion_matrix_augmented_extended.png"
+        "augmented_confusion_matrix_augmented_valid.png"
     )
 
     augmented_my_numbers = predict_my_numbers(augmented_cnn, MY_NUMBERS_PATH, add_augmented=True)
+    save_feature_maps_for_folder(augmented_cnn, MY_NUMBERS_PATH, FEATURE_MAPS_DIR / "augmented")
 
-    augmented_feature_root = FEATURE_MAPS_DIR / "augmented"
-    save_feature_maps_for_folder(augmented_cnn, MY_NUMBERS_PATH, augmented_feature_root)
+    compare_path = ASSETS_DIR / "my_numbers_comparison.txt"
+    if compare_path.exists():
+        os.remove(compare_path)
 
-    my_results_path = ASSETS_DIR / "my_numbers_comparison.txt"
-    if my_results_path.exists():
-        os.remove(my_results_path)
-
-    save_my_numbers_results("Baseline CNN", baseline_my_numbers, my_results_path)
-    save_my_numbers_results("CNN с аугментацией", augmented_my_numbers, my_results_path)
+    save_my_numbers_results("Baseline CNN", baseline_my_numbers, compare_path)
+    save_my_numbers_results("CNN с аугментацией", augmented_my_numbers, compare_path)
 
     report_data = {
         "Baseline CNN на обычной валидации": baseline_clean_metrics,
