@@ -1,26 +1,26 @@
 Лабораторная работа 3
 
 Baseline CNN на обычной валидации
-accuracy: 0.9902
+accuracy: 0.9904
 precision: 0.9903
-recall: 0.9901
-f1: 0.9902
+recall: 0.9903
+f1: 0.9903
 
 Baseline CNN на аугментированной валидации
-accuracy: 0.8086
-precision: 0.8115
-recall: 0.8087
-f1: 0.8086
+accuracy: 0.8020
+precision: 0.8057
+recall: 0.8016
+f1: 0.8016
 
 CNN с аугментацией на обычной валидации
-accuracy: 0.9918
-precision: 0.9917
-recall: 0.9918
-f1: 0.9917
+accuracy: 0.9933
+precision: 0.9933
+recall: 0.9932
+f1: 0.9933
 
 CNN с аугментацией на аугментированной валидации
-accuracy: 0.9800
-precision: 0.9800
-recall: 0.9799
-f1: 0.9799
+accuracy: 0.9811
+precision: 0.9809
+recall: 0.9810
+f1: 0.9809
 

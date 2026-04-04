@@ -361,7 +361,6 @@ def save_my_numbers_results(title, rows, out_path):
             f.write(f"{file_name} | {mode_name} -> {pred}\n")
         f.write("\n")
 
-
 def extract_feature_maps(model, image_tensor):
     with torch.no_grad():
         x = image_tensor.unsqueeze(0).to(DEVICE)
@@ -377,9 +376,9 @@ def extract_feature_maps(model, image_tensor):
         "conv1": conv1.squeeze(0).cpu(),
         "conv2": conv2.squeeze(0).cpu(),
         "pool1": pool1.squeeze(0).cpu(),
+        "conv3": conv3.squeeze(0).cpu(),
         "pool2": pool2.squeeze(0).cpu(),
     }
-
 
 def save_feature_grid(feature_tensor, out_path, cols=8):
     channels = feature_tensor.shape[0]
