@@ -72,19 +72,12 @@ class CNNModel(nn.Module):
     def __init__(self):
         super().__init__()
 
-        # Архитектура намеренно отличается от прошлой версии:
-        # 3 свёртки вместо 2, другие числа каналов
         self.conv_1 = nn.Conv2d(1, 16, kernel_size=3, padding=1)
         self.conv_2 = nn.Conv2d(16, 32, kernel_size=3, padding=1)
         self.conv_3 = nn.Conv2d(32, 64, kernel_size=3, padding=1)
 
         self.pool = nn.MaxPool2d(2, 2)
 
-        # 28x28 -> conv1 -> 28x28
-        # -> conv2 -> 28x28
-        # -> pool -> 14x14
-        # -> conv3 -> 14x14
-        # -> pool -> 7x7
         self.fc_1 = nn.Linear(64 * 7 * 7, 96)
         self.fc_2 = nn.Linear(96, 10)
         self.dropout = nn.Dropout(0.25)

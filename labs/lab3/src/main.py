@@ -86,19 +86,40 @@ class CNNModel(nn.Module):
         x = self.fc_2(x)
         return x
 
-
-def build_transform(use_aug=False):
-    if use_aug:
+def build_transform(mode="none"):
+    if mode == "train":
         return transforms.Compose([
             transforms.ToPILImage(),
             transforms.RandomAffine(
-                degrees=15,
-                translate=(0.12, 0.12),
-                scale=(0.9, 1.1),
-                shear=10,
+                degrees=20,
+                translate=(0.15, 0.15),
+                scale=(0.85, 1.15),
+                shear=12,
                 fill=0
             ),
-            transforms.RandomPerspective(distortion_scale=0.2, p=0.3, fill=0),
+            transforms.RandomPerspective(
+                distortion_scale=0.25,
+                p=0.4,
+                fill=0
+            ),
+            transforms.ToTensor(),
+        ])
+
+    if mode == "strong":
+        return transforms.Compose([
+            transforms.ToPILImage(),
+            transforms.RandomAffine(
+                degrees=40,
+                translate=(0.20, 0.20),
+                scale=(0.75, 1.25),
+                shear=20,
+                fill=0
+            ),
+            transforms.RandomPerspective(
+                distortion_scale=0.35,
+                p=0.8,
+                fill=0
+            ),
             transforms.ToTensor(),
         ])
 
@@ -107,8 +128,7 @@ def build_transform(use_aug=False):
         transforms.ToTensor(),
     ])
 
-
-def prepare_dataloaders(batch_size=64, use_aug_train=False, use_aug_valid=False):
+def prepare_dataloaders(batch_size=64, train_mode="none", valid_mode="none"):
     print("Загрузка датасета для ЛР3...")
     df = pd.read_csv(TRAIN_PATH)
 
@@ -123,8 +143,17 @@ def prepare_dataloaders(batch_size=64, use_aug_train=False, use_aug_valid=False)
         stratify=target
     )
 
-    train_ds = DigitDataset(x_train, y_train, transform=build_transform(use_aug_train))
-    valid_ds = DigitDataset(x_valid, y_valid, transform=build_transform(use_aug_valid))
+    train_ds = DigitDataset(
+        x_train,
+        y_train,
+        transform=build_transform(train_mode)
+    )
+
+    valid_ds = DigitDataset(
+        x_valid,
+        y_valid,
+        transform=build_transform(valid_mode)
+    )
 
     train_loader = DataLoader(train_ds, batch_size=batch_size, shuffle=True)
     valid_loader = DataLoader(valid_ds, batch_size=batch_size, shuffle=False)
@@ -135,10 +164,11 @@ def prepare_dataloaders(batch_size=64, use_aug_train=False, use_aug_valid=False)
         f.write(f"Размер валидационной выборки: {x_valid.shape}\n")
         f.write(f"Количество классов: {len(sorted(target.unique()))}\n")
         f.write(f"Классы: {sorted(target.unique().tolist())}\n")
+        f.write(f"Режим train-аугментации: {train_mode}\n")
+        f.write(f"Режим valid-аугментации: {valid_mode}\n")
 
     return train_loader, valid_loader
-
-
+    
 def one_pass(model, loader, criterion, optimizer=None):
     train_mode = optimizer is not None
 
@@ -312,23 +342,25 @@ def preprocess_my_image(image_path):
 
     return tensor
 
-
 def make_augmented_copy(tensor):
     aug = transforms.Compose([
         transforms.ToPILImage(),
         transforms.RandomAffine(
-            degrees=15,
-            translate=(0.12, 0.12),
-            scale=(0.9, 1.1),
-            shear=10,
+            degrees=40,
+            translate=(0.20, 0.20),
+            scale=(0.75, 1.25),
+            shear=20,
             fill=0
         ),
-        transforms.RandomPerspective(distortion_scale=0.2, p=1.0, fill=0),
+        transforms.RandomPerspective(
+            distortion_scale=0.35,
+            p=1.0,
+            fill=0
+        ),
         transforms.ToTensor(),
     ])
     return aug(tensor)
-
-
+    
 def predict_my_numbers(model, folder_path, add_augmented=False):
     results = []
 
@@ -502,16 +534,54 @@ def write_summary(report_data):
                     continue
                 f.write(f"{metric_name}: {metric_value:.4f}\n")
             f.write("\n")
+def save_augmented_validation_examples(out_name="augmented_validation_examples.png", sample_count=10):
+    df = pd.read_csv(TRAIN_PATH)
 
+    features = df.drop("label", axis=1)
+    target = df["label"]
+
+    _, x_valid, _, y_valid = train_test_split(
+        features,
+        target,
+        test_size=0.2,
+        random_state=42,
+        stratify=target
+    )
+
+    sample_count = min(sample_count, len(x_valid))
+
+    strong_aug = build_transform("strong")
+
+    fig, axes = plt.subplots(2, sample_count, figsize=(sample_count * 2.0, 4.5))
+
+    for i in range(sample_count):
+        original = x_valid.iloc[i].values.reshape(28, 28).astype(np.uint8)
+
+        axes[0, i].imshow(original, cmap="gray")
+        axes[0, i].set_title(f"orig: {int(y_valid.iloc[i])}", fontsize=9)
+        axes[0, i].axis("off")
+
+        augmented = strong_aug(original).squeeze(0).numpy()
+        axes[1, i].imshow(augmented, cmap="gray")
+        axes[1, i].set_title("aug", fontsize=9)
+        axes[1, i].axis("off")
+
+    plt.tight_layout()
+    plt.savefig(ASSETS_DIR / out_name, dpi=180)
+    plt.close()
 
 def main():
     print(f"Используемое устройство: {DEVICE}")
 
-    # baseline CNN
+    save_augmented_validation_examples(
+        out_name="augmented_validation_examples.png",
+        sample_count=10
+    )
+
     train_loader_clean, valid_loader_clean = prepare_dataloaders(
         batch_size=64,
-        use_aug_train=False,
-        use_aug_valid=False
+        train_mode="none",
+        valid_mode="none"
     )
 
     baseline_cnn = CNNModel().to(DEVICE)
@@ -531,8 +601,8 @@ def main():
 
     _, valid_loader_aug = prepare_dataloaders(
         batch_size=64,
-        use_aug_train=False,
-        use_aug_valid=True
+        train_mode="none",
+        valid_mode="strong"
     )
 
     baseline_aug_metrics = evaluate_model(baseline_cnn, valid_loader_aug)
@@ -546,11 +616,10 @@ def main():
     baseline_my_numbers = predict_my_numbers(baseline_cnn, MY_NUMBERS_PATH, add_augmented=True)
     save_feature_maps_for_folder(baseline_cnn, MY_NUMBERS_PATH, FEATURE_MAPS_DIR / "baseline")
 
-    # CNN с аугментацией
     train_loader_aug, valid_loader_clean_2 = prepare_dataloaders(
         batch_size=64,
-        use_aug_train=True,
-        use_aug_valid=False
+        train_mode="none",
+        valid_mode="strong"
     )
 
     augmented_cnn = CNNModel().to(DEVICE)

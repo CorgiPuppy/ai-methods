@@ -440,6 +440,12 @@ $
 	#raw(read("../lab3/assets/lab3_summary.txt"))
 ]
 
+#figure(
+	image("../lab3/assets/augmented_validation_examples.png", width: 95%),
+	caption: [Примеры изображений из валидационной выборки до и после сильной аугментации],
+	supplement: [Рис.]
+)
+
 #align(center, block[
 	=== 3.3.3. Проверка на собственных изображениях
 ])
